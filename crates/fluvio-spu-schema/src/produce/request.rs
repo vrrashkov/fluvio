@@ -41,7 +41,7 @@ pub struct ProduceRequest<R> {
     /// Each topic to produce to.
     pub topics: Vec<TopicProduceData<R>>,
 
-    #[fluvio(min_version = 8)]
+    #[fluvio(min_version = "PRODUCER_TRANSFORMATION_API_VERSION")]
     pub smartmodules: Vec<SmartModuleInvocation>,
 
     pub data: PhantomData<R>,

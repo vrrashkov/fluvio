@@ -1,6 +1,28 @@
 use syn::{
     punctuated::Punctuated, Attribute, Expr, Lit, LitStr, Meta, MetaList, MetaNameValue, Token,
 };
+
+use crate::ast::prop::PropAttrsType;
+pub fn get_expr_value<'a>(attr_name: &'a str, value: &'a Expr) -> syn::Result<PropAttrsType> {
+    match &value {
+        Expr::Lit(lit_expr) => {
+            if let Lit::Int(lit) = &lit_expr.lit {
+                Ok(PropAttrsType::LitInt(lit.base10_parse::<i16>()?))
+            } else if let Lit::Str(lit) = &lit_expr.lit {
+                Ok(PropAttrsType::LitStr(syn::Ident::new(&lit.value(), proc_macro2::Span::call_site())))
+            } else {
+                Err(syn::Error::new_spanned(
+                    value,
+                    format!("Expected {attr_name} attribute to be an int: `{attr_name} = \"...\"`"),
+                ))
+            }
+        }
+        _ => Err(syn::Error::new_spanned(
+            value,
+            format!("Expected {attr_name} attribute to be a Lit: `{attr_name} = \"...\"`"),
+        )),
+    }
+}
 pub fn get_lit_int<'a>(attr_name: &'a str, value: &'a Expr) -> syn::Result<&'a syn::LitInt> {
     match &value {
         Expr::Lit(lit_expr) => {

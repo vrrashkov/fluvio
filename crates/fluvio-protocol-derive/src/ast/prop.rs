@@ -1,19 +1,19 @@
-use proc_macro2::TokenStream;
-use quote::{quote, ToTokens};
+use proc_macro2::{TokenStream, Ident};
+use quote::{quote, ToTokens, format_ident};
 use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
-use syn::{Attribute, Error, Field, Meta, Token, Type};
+use syn::{Attribute, Error, Field, Meta, Token, Type, LitStr, LitInt};
 
-use crate::util::{get_lit_int, get_lit_str};
+use crate::util::{get_lit_int, get_lit_str, get_expr_value};
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub(crate) struct NamedProp {
     pub field_name: String,
     pub field_type: Type,
     pub attrs: PropAttrs,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub(crate) struct UnnamedProp {
     pub field_type: Type,
     pub attrs: PropAttrs,
@@ -32,23 +32,26 @@ impl NamedProp {
         let field_name = field_ident.to_string();
         let field_type = field.ty.clone();
         let attrs = PropAttrs::from_ast(&field.attrs)?;
+
         let prop = NamedProp {
             field_name,
             field_type,
             attrs,
         };
 
-        let result = validate_versions(
-            prop.attrs.min_version,
-            prop.attrs.max_version,
-            Some(&prop.field_name),
-        );
+        // let result = validate_versions(
+        //     prop.attrs.min_version,
+        //     prop.attrs.max_version,
+        //     Some(&prop.field_name),
+        // );
 
-        if let Some(err) = result {
-            Err(syn::Error::new(field.span(), err))
-        } else {
-            Ok(prop)
-        }
+        // if let Some(err) = result {
+        //     Err(syn::Error::new(field.span(), err))
+        // } else {
+        //     Ok(prop)
+        // }
+
+        Ok(prop)
     }
 
     pub fn version_check_token_stream(
@@ -56,21 +59,24 @@ impl NamedProp {
         field_stream: TokenStream,
         trace: bool,
     ) -> TokenStream {
-        let min = self.attrs.min_version;
+
+        let min_version = prop_attrs_type(&self.attrs.min_version);
         let field_name = &self.field_name;
 
         if let Some(max) = self.attrs.max_version {
             let trace = if trace {
                 quote! {
                     else {
-                        tracing::trace!("Field: <{}> is skipped because version: {} is outside min: {}, max: {}",stringify!(#field_name),version,#min,#max);
+                        #min_version
+                        tracing::trace!("Field: <{}> is skipped because version: {} is outside min: {}, max: {}",stringify!(#field_name),version,min,#max);
                     }
                 }
             } else {
                 quote! {}
             };
             quote! {
-                if (#min..=#max).contains(&version) {
+                #min_version
+                if (min..=#max).contains(&version) {
                     #field_stream
                 }
                 #trace
@@ -79,14 +85,17 @@ impl NamedProp {
             let trace = if trace {
                 quote! {
                     else {
-                        tracing::trace!("Field: <{}> is skipped because version: {} is less than min: {}",stringify!(#field_name),version,#min);
+                        #min_version
+                        tracing::trace!("Field: <{}> is skipped because version: {} is less than min: {}",stringify!(#field_name),version,min);
                     }
                 }
             } else {
                 quote! {}
             };
             quote! {
-                if version >= #min {
+                #min_version
+
+                if version >= min {
                     #field_stream
                 }
                 #trace
@@ -94,20 +103,39 @@ impl NamedProp {
         }
     }
 }
-
+pub fn prop_attrs_type(attrs_type: &PropAttrsType) -> TokenStream {
+    match attrs_type {
+        PropAttrsType::LitStr(data) => {
+            // let data_ident = format_ident!("{}", data);
+            let data_ident = data;
+            let min_ident = syn::Ident::new("min", proc_macro2::Span::call_site());
+            quote! {
+            let #min_ident = #data_ident;
+        }},
+        PropAttrsType::LitInt(data) => {
+            quote! {
+            let min = #data;
+        }
+    },
+        PropAttrsType::None => quote! {
+            let min = -1;
+        },
+    }
+}
 impl UnnamedProp {
     pub fn from_ast(field: &Field) -> syn::Result<Self> {
         let attrs = PropAttrs::from_ast(&field.attrs)?;
         let field_type = field.ty.clone();
         let prop = UnnamedProp { field_type, attrs };
 
-        let result = validate_versions(prop.attrs.min_version, prop.attrs.max_version, None);
+        // let result = validate_versions(prop.attrs.min_version, prop.attrs.max_version, None);
 
-        if let Some(err) = result {
-            Err(syn::Error::new(field.span(), err))
-        } else {
-            Ok(prop)
-        }
+        // if let Some(err) = result {
+        //     Err(syn::Error::new(field.span(), err))
+        // } else {
+        //     Ok(prop)
+        // }
+        Ok(prop)
     }
 
     pub fn version_check_token_stream(
@@ -115,13 +143,15 @@ impl UnnamedProp {
         field_stream: TokenStream,
         trace: bool,
     ) -> TokenStream {
-        let min = self.attrs.min_version;
+        let min_version = prop_attrs_type(&self.attrs.min_version);
 
         if let Some(max) = self.attrs.max_version {
             let trace = if trace {
                 quote! {
                     else {
-                        tracing::trace!("Field from tuple struct:is skipped because version: {} is outside min: {}, max: {}",version,#min,#max);
+                        #min_version
+        
+                        tracing::trace!("Field from tuple struct:is skipped because version: {} is outside min: {}, max: {}",version,min,#max);
                     }
                 }
             } else {
@@ -129,7 +159,9 @@ impl UnnamedProp {
             };
 
             quote! {
-                if (#min..=#max).contains(&version) {
+                #min_version
+
+                if (min..=#max).contains(&version) {
                     #field_stream
                 }
                 #trace
@@ -138,7 +170,9 @@ impl UnnamedProp {
             let trace = if trace {
                 quote! {
                     else {
-                        tracing::trace!("Field from tuple struct: is skipped because version: {} is less than min: {}",version,#min);
+                        #min_version
+        
+                        tracing::trace!("Field from tuple struct: is skipped because version: {} is less than min: {}",version,min);
                     }
                 }
             } else {
@@ -146,7 +180,9 @@ impl UnnamedProp {
             };
 
             quote! {
-                if version >= #min {
+                #min_version
+
+                if version >= min {
                     #field_stream
                 }
                 #trace
@@ -172,13 +208,19 @@ pub fn validate_versions(min: i16, max: Option<i16>, field: Option<&str>) -> Opt
         _ => None,
     }
 }
-
-#[derive(Default, Clone)]
+#[derive(Debug, Default, Clone)]
+pub enum PropAttrsType {
+    LitStr(Ident),
+    LitInt(i16),
+    #[default]
+    None
+}
+#[derive(Debug, Default, Clone)]
 pub(crate) struct PropAttrs {
     pub varint: bool,
     /// Will default to 0 if not specified.
     /// Note: `None` is encoded as "-1" so it's i16.
-    pub min_version: i16,
+    pub min_version: PropAttrsType,
     /// Optional max version.
     /// The field won't be decoded from the buffer if it has a larger version than what is specified here.
     /// Note: `None` is encoded as "-1" so it's i16.
@@ -188,7 +230,7 @@ pub(crate) struct PropAttrs {
     pub default_value: Option<String>,
 }
 
-impl PropAttrs {
+impl PropAttrs  {
     pub fn from_ast(attrs: &[Attribute]) -> syn::Result<Self> {
         let mut prop_attrs = Self::default();
 
@@ -207,8 +249,10 @@ impl PropAttrs {
 
                                 if let Some(args_name) = args_data.path.get_ident() {
                                     if args_name == "min_version" {
-                                        let value = get_lit_int("min_version", lit_expr)?;
-                                        prop_attrs.min_version = value.base10_parse::<i16>()?;
+                                        // let value = get_lit_int("min_version", lit_expr)?;
+                                        // prop_attrs.min_version = value.base10_parse::<i16>()?;
+                                        let value = get_expr_value("min_version", lit_expr)?;
+                                        prop_attrs.min_version = value;
                                     } else if args_name == "max_version" {
                                         let value = get_lit_int("max_version", lit_expr)?;
                                         prop_attrs.max_version = Some(value.base10_parse::<i16>()?);
