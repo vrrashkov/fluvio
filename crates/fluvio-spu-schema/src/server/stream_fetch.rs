@@ -80,7 +80,7 @@ pub struct StreamFetchRequest<R> {
     #[fluvio(min_version = 16, max_version = 18)]
     smartmodule: Option<SmartModuleInvocation>,
     #[builder(setter(skip))]
-    #[fluvio(min_version = 16, max_version = 18)]
+    #[fluvio(min_version = 33, max_version = 18)]
     derivedstream: Option<DerivedStreamInvocation>,
     #[builder(default)]
     #[fluvio(min_version = "CHAIN_SMARTMODULE_API")]

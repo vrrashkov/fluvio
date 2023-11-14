@@ -1,15 +1,31 @@
 use syn::{
-    punctuated::Punctuated, Attribute, Expr, Lit, LitStr, Meta, MetaList, MetaNameValue, Token,
+    punctuated::Punctuated, spanned::Spanned, Attribute, Expr, ItemFn, Lit, LitStr, Meta, MetaList,
+    MetaNameValue, Token,
 };
 
 use crate::ast::prop::PropAttrsType;
 pub fn get_expr_value<'a>(attr_name: &'a str, value: &'a Expr) -> syn::Result<PropAttrsType> {
+  
     match &value {
         Expr::Lit(lit_expr) => {
             if let Lit::Int(lit) = &lit_expr.lit {
                 Ok(PropAttrsType::LitInt(lit.base10_parse::<i16>()?))
             } else if let Lit::Str(lit) = &lit_expr.lit {
-                Ok(PropAttrsType::LitStr(syn::Ident::new(&lit.value(), proc_macro2::Span::call_site())))
+                let value = &lit.value();
+
+                if value.contains("(") && value.contains(")") {
+                    if let Some(value) = &lit.value().strip_suffix("()") {
+                        return Ok(PropAttrsType::LitFn(syn::Ident::new(
+                            value,
+                            proc_macro2::Span::call_site(),
+                        )));
+                    }
+                }
+
+                Ok(PropAttrsType::LitStr(syn::Ident::new(
+                    &lit.value(),
+                    proc_macro2::Span::call_site(),
+                )))
             } else {
                 Err(syn::Error::new_spanned(
                     value,

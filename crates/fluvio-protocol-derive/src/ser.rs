@@ -103,7 +103,7 @@ fn parse_struct_named_props_encoding(
     props: &[NamedProp],
     struct_ident: &Ident,
     attr: &ContainerAttributes,
-) -> TokenStream {    
+) -> TokenStream {
     let recurse = props.iter().map(|prop| {
         let fname = format_ident!("{}", prop.field_name);
         if prop.attrs.varint {
@@ -215,7 +215,6 @@ fn parse_struct_named_props_size(
     struct_ident: &Ident,
     attr: &ContainerAttributes,
 ) -> TokenStream {
-
     let recurse = props.iter().map(|prop| {
         let fname = format_ident!("{}", prop.field_name);
         if prop.attrs.varint {

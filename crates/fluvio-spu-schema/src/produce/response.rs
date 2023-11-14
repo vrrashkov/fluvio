@@ -45,7 +45,9 @@ pub struct TopicProduceResponse {
     /// Each partition that we produced to within the topic.
     pub partitions: Vec<PartitionProduceResponse>,
 }
-
+const fn test2() -> i16 {
+    122
+}
 #[derive(Encoder, Decoder, FluvioDefault, Debug)]
 pub struct PartitionProduceResponse {
     /// The partition index.
@@ -64,6 +66,6 @@ pub struct PartitionProduceResponse {
     pub log_append_time_ms: i64,
 
     /// The log start offset.
-    #[fluvio(min_version = 5, ignorable)]
+    #[fluvio(min_version = "test2()", ignorable)]
     pub log_start_offset: i64,
 }

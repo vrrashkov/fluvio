@@ -17,13 +17,12 @@ use crate::ast::{
 };
 
 pub(crate) fn generate_decode_trait_impls(input: &DeriveItem) -> TokenStream {
-
     match &input {
         DeriveItem::Struct(kf_struct, attrs) => {
             // TODO: struct level attrs is not used.
             let field_tokens =
                 generate_struct_fields(&kf_struct.props(), kf_struct.struct_ident(), attrs);
-            let ident = &kf_struct.struct_ident();   
+            let ident = &kf_struct.struct_ident();
             let generics = add_bounds(kf_struct.generics().clone(), attrs, FluvioBound::Decoder);
             let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
             quote! {
@@ -411,9 +410,7 @@ pub(crate) fn generate_default_impls(props: &FluvioStructProps) -> TokenStream {
         }
     }
 }
-pub(crate) fn generate_default_impls_named_fields(
-    props: &[NamedProp]
-) -> TokenStream {
+pub(crate) fn generate_default_impls_named_fields(props: &[NamedProp]) -> TokenStream {
     let recurse = props.iter().map(|prop| {
         let fname = format_ident!("{}", prop.field_name);
         if let Some(def) = &prop.attrs.default_value {
