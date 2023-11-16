@@ -1,12 +1,45 @@
 use syn::{
     punctuated::Punctuated, spanned::Spanned, Attribute, Expr, ItemFn, Lit, LitStr, Meta, MetaList,
-    MetaNameValue, Token,
+    MetaNameValue, Token, parse_quote_spanned,
 };
 
 use crate::ast::prop::PropAttrsType;
-pub fn get_expr_value<'a>(attr_name: &'a str, value: &'a Expr) -> syn::Result<PropAttrsType> {
+
+/// Parses the specified attributes from a `syn::Attribute` iterator.
+macro_rules! parse_attributes {
+    ($attrs:expr, $attr_ident:literal, $meta:ident, $($field:pat, $opt:expr => $block:expr)*) => {
+        const ERROR: &str = concat!("unrecognized ", $attr_ident, " attribute");
+        const ALREADY_SPECIFIED: &str = concat!($attr_ident, " attribute already specified");
+
+        for attr in $attrs {
+            if !attr.path().is_ident($attr_ident) {
+                continue;
+            }
+
+            attr.parse_nested_meta(|$meta| {
+
+                let expr: Expr = $meta.value()?.parse()?;
+                let ident = $meta.path.get_ident().ok_or_else(|| $meta.error(ERROR))?;
+                let attr_name = &ident.to_string();
+                match attr_name.as_str() {
+                    $(
+                        // check if the value is already defined
+                        // if not we can execute the block of code
+                        $field if $opt.is_none() => { return $block(expr, attr_name)},
+                        $field => {return Err($meta.error(ALREADY_SPECIFIED))}
+                    )*
+
+                    _ => return Err($meta.error(ERROR)),
+                }
+            })?;
+        }
+    };
+}
+pub(crate) use parse_attributes;
+
+pub fn get_expr_value<'a>(attr_name: &'a str, field: &'a Expr) -> syn::Result<PropAttrsType> {
   
-    match &value {
+    match &field {
         Expr::Lit(lit_expr) => {
             if let Lit::Int(lit) = &lit_expr.lit {
                 Ok(PropAttrsType::LitInt(lit.base10_parse::<i16>()?))
@@ -28,13 +61,13 @@ pub fn get_expr_value<'a>(attr_name: &'a str, value: &'a Expr) -> syn::Result<Pr
                 )))
             } else {
                 Err(syn::Error::new_spanned(
-                    value,
+                    field,
                     format!("Expected {attr_name} attribute to be an int: `{attr_name} = \"...\"`"),
                 ))
             }
         }
         _ => Err(syn::Error::new_spanned(
-            value,
+            field,
             format!("Expected {attr_name} attribute to be a Lit: `{attr_name} = \"...\"`"),
         )),
     }

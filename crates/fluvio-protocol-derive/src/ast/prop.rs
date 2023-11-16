@@ -3,9 +3,10 @@ use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote, ToTokens};
 use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
-use syn::{Attribute, Error, Expr, Field, LitInt, LitStr, Meta, Token, Type};
+use syn::{token, Attribute, Error, Expr, Field, LitInt, LitStr, Meta, Token, Type, parse_quote_spanned, Lit};
+use tracing::Instrument;
 
-use crate::util::{get_expr_value, get_lit_int, get_lit_str};
+use crate::util::{get_expr_value, get_lit_int, get_lit_str, parse_attributes};
 
 #[derive(Debug, Clone)]
 pub(crate) struct NamedProp {
@@ -62,54 +63,61 @@ impl NamedProp {
         field_stream: TokenStream,
         trace: bool,
     ) -> TokenStream {
+
         // let field_stream = validate_versions_tokens(
         //     field_stream,
         //     &self.attrs.min_version,
         //     &self.attrs.max_version,
         //     Some(&self.field_name),
         // );
-        let min = prop_attrs_type_value(&self.attrs.min_version);
        
         let field_name = &self.field_name;
 
-        if let Some(max_version_prop) = &self.attrs.max_version {
-            let max = prop_attrs_type_value(&max_version_prop);
-            let trace = if trace {
-                quote! {
-                    else {
-                        tracing::trace!("Field: <{}> is skipped because version: {} is outside min: {}, max: {}",stringify!(#field_name),version,#min,#max);
+        if let Some(min_version) = &self.attrs.min_version {
+            let min = prop_attrs_type_value(&min_version);
+
+            if let Some(max_version) = &self.attrs.max_version {
+                let max = prop_attrs_type_value(&max_version);
+                let trace = if trace {
+                    quote! {
+                        else {
+                            tracing::trace!("Field: <{}> is skipped because version: {} is outside min: {}, max: {}",stringify!(#field_name),version,#min,#max);
+                        }
                     }
+                } else {
+                    quote! {}
+                };
+                quote! {
+                    if (#min..=#max).contains(&version) {
+                        #field_stream
+                    }
+                    #trace
                 }
             } else {
-                quote! {}
-            };
-            quote! {
-                if (#min..=#max).contains(&version) {
-                    #field_stream
+                let trace = if trace {
+                    quote! {
+                        else {
+                            tracing::trace!("Field: <{}> is skipped because version: {} is less than min: {}",stringify!(#field_name),version,#min);
+                        }
+                    }
+                } else {
+                    quote! {}
+                };
+                quote! {
+                    if version >= #min {
+                        #field_stream
+                    }
+                    #trace
                 }
-                #trace
             }
         } else {
-            let trace = if trace {
-                quote! {
-                    else {
-                        tracing::trace!("Field: <{}> is skipped because version: {} is less than min: {}",stringify!(#field_name),version,#min);
-                    }
-                }
-            } else {
-                quote! {}
-            };
-            quote! {
-                if version >= #min {
-                    #field_stream
-                }
-                #trace
-            }
+            quote! {}
         }
     }
 }
 
 pub fn prop_attrs_type_value(attrs_type: &PropAttrsType) -> TokenStream {
+
     match &attrs_type {
         PropAttrsType::LitStr(data) => {
             quote! {
@@ -127,7 +135,7 @@ pub fn prop_attrs_type_value(attrs_type: &PropAttrsType) -> TokenStream {
             }
         }
         PropAttrsType::None => quote! {
-            1i16
+            -1
         },
     }
 }
@@ -157,43 +165,46 @@ impl UnnamedProp {
         //         &self.attrs.max_version,
         //         None
         //     );
-        let min = prop_attrs_type_value(&self.attrs.min_version);
-
-        if let Some(max_version_prop) = &self.attrs.max_version {
-            let max = prop_attrs_type_value(&max_version_prop);
-            let trace = if trace {
-                quote! {
-                    else {
-                        tracing::trace!("Field from tuple struct:is skipped because version: {} is outside min: {}, max: {}",version,#min,#max);
+        if let Some(min_version) = &self.attrs.min_version {
+            let min = prop_attrs_type_value(&min_version);
+            if let Some(max_version) = &self.attrs.max_version {
+                let max = prop_attrs_type_value(&max_version);
+                let trace = if trace {
+                    quote! {
+                        else {
+                            tracing::trace!("Field from tuple struct:is skipped because version: {} is outside min: {}, max: {}",version,#min,#max);
+                        }
                     }
+                } else {
+                    quote! {}
+                };
+
+                quote! {
+                    if (#min..=#max).contains(&version) {
+                        #field_stream
+                    }
+                    #trace
                 }
             } else {
-                quote! {}
-            };
+                let trace = if trace {
+                    quote! {
+                        else {
+                            tracing::trace!("Field from tuple struct: is skipped because version: {} is less than min: {}",version,#min);
+                        }
+                    }
+                } else {
+                    quote! {}
+                };
 
-            quote! {
-                if (#min..=#max).contains(&version) {
-                    #field_stream
+                quote! {
+                    if version >= #min {
+                        #field_stream
+                    }
+                    #trace
                 }
-                #trace
             }
         } else {
-            let trace = if trace {
-                quote! {
-                    else {
-                        tracing::trace!("Field from tuple struct: is skipped because version: {} is less than min: {}",version,#min);
-                    }
-                }
-            } else {
-                quote! {}
-            };
-
-            quote! {
-                if version >= #min {
-                    #field_stream
-                }
-                #trace
-            }
+            quote! {}
         }
     }
 }
@@ -276,7 +287,7 @@ pub(crate) struct PropAttrs {
     pub varint: bool,
     /// Will default to 0 if not specified.
     /// Note: `None` is encoded as "-1" so it's i16.
-    pub min_version: PropAttrsType,
+    pub min_version: Option<PropAttrsType>,
     /// Optional max version.
     /// The field won't be decoded from the buffer if it has a larger version than what is specified here.
     /// Note: `None` is encoded as "-1" so it's i16.
@@ -285,51 +296,72 @@ pub(crate) struct PropAttrs {
     /// Example: `#[fluvio(default = "-1")]`
     pub default_value: Option<String>,
 }
-
 impl PropAttrs {
     pub fn from_ast(attrs: &[Attribute]) -> syn::Result<Self> {
         let mut prop_attrs = Self::default();
 
-        // Find all supported field level attributes in one go.
-        for attribute in attrs.iter() {
-            if attribute.path().is_ident("varint") {
-                prop_attrs.varint = true;
-            } else if attribute.path().is_ident("fluvio") {
-                if let Meta::List(list) = &attribute.meta {
-                    if let Ok(list_args) =
-                        list.parse_args_with(Punctuated::<Meta, Token![,]>::parse_terminated)
-                    {
-                        for args_meta in list_args.iter() {
-                            if let Meta::NameValue(args_data) = args_meta {
-                                let lit_expr = &args_data.value;
-
-                                if let Some(args_name) = args_data.path.get_ident() {
-                                    if args_name == "min_version" {
-                                        // let value = get_lit_int("min_version", lit_expr)?;
-                                        // prop_attrs.min_version = value.base10_parse::<i16>()?;
-                                        let value = get_expr_value("min_version", lit_expr)?;
-                                        prop_attrs.min_version = value;
-                                    } else if args_name == "max_version" {
-                                        // let value = get_lit_int("max_version", lit_expr)?;
-                                        // prop_attrs.max_version = Some(value.base10_parse::<i16>()?);
-                                        let value = get_expr_value("max_version", lit_expr)?;
-                                        prop_attrs.max_version = Some(value);
-                                    } else if args_name == "default" {
-                                        let value = get_lit_str("default", lit_expr)?;
-                                        prop_attrs.default_value = Some(value.value());
-                                    } else {
-                                        tracing::warn!(
-                                            "#[fluvio({})] does nothing here.",
-                                            args_name.to_token_stream().to_string(),
-                                        );
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+        parse_attributes!(attrs.iter(), "fluvio", meta,
+            "min_version", prop_attrs.min_version => |expr,attr_name: &str| {
+                let value = crate::util::get_expr_value(&attr_name, &expr)?;
+                prop_attrs.min_version = Some(value);
+                
+                Ok(())
             }
-        }
+            "max_version", prop_attrs.max_version => |expr,attr_name: &str| {
+                let value = crate::util::get_expr_value(&attr_name, &expr)?;
+                prop_attrs.max_version = Some(value);
+                
+                Ok(())
+            }
+            "default", prop_attrs.default_value => |expr, _| {
+                let value = get_lit_str("default", &expr)?;
+                prop_attrs.default_value = Some(value.value());
+                
+                Ok(())
+            }
+        );
+
+        dbg!(&prop_attrs);
+        // // Find all supported field level attributes in one go.
+        // for attribute in attrs.iter() {
+        //     if attribute.path().is_ident("varint") {
+        //         prop_attrs.varint = true;
+        //     } else if attribute.path().is_ident("fluvio") {
+        //         if let Meta::List(list) = &attribute.meta {
+        //             if let Ok(list_args) =
+        //                 list.parse_args_with(Punctuated::<Meta, Token![,]>::parse_terminated)
+        //             {
+        //                 for args_meta in list_args.iter() {
+        //                     if let Meta::NameValue(args_data) = args_meta {
+        //                         let lit_expr = &args_data.value;
+
+        //                         if let Some(args_name) = args_data.path.get_ident() {
+        //                             if args_name == "min_version" {
+        //                                 // let value = get_lit_int("min_version", lit_expr)?;
+        //                                 // prop_attrs.min_version = value.base10_parse::<i16>()?;
+        //                                 let value = get_expr_value("min_version", lit_expr)?;
+        //                                 prop_attrs.min_version = value;
+        //                             } else if args_name == "max_version" {
+        //                                 // let value = get_lit_int("max_version", lit_expr)?;
+        //                                 // prop_attrs.max_version = Some(value.base10_parse::<i16>()?);
+        //                                 let value = get_expr_value("max_version", lit_expr)?;
+        //                                 prop_attrs.max_version = Some(value);
+        //                             } else if args_name == "default" {
+        //                                 let value = get_lit_str("default", lit_expr)?;
+        //                                 prop_attrs.default_value = Some(value.value());
+        //                             } else {
+        //                                 tracing::warn!(
+        //                                     "#[fluvio({})] does nothing here.",
+        //                                     args_name.to_token_stream().to_string(),
+        //                                 );
+        //                             }
+        //                         }
+        //                     }
+        //                 }
+        //             }
+        //         }
+        //     }
+        // }
 
         Ok(prop_attrs)
     }

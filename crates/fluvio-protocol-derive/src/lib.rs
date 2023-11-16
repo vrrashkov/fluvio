@@ -5,6 +5,7 @@ mod ast;
 mod de;
 mod ser;
 mod util;
+mod callable;
 
 use self::api::generate_request_traits;
 use self::api::parse_and_generate_api;
