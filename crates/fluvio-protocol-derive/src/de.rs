@@ -9,6 +9,7 @@ use syn::Token;
 
 use crate::ast::add_bounds;
 use crate::ast::prop::UnnamedProp;
+use crate::ast::prop::prop_attrs_type_value;
 use crate::ast::r#struct::FluvioStructProps;
 use crate::ast::FluvioBound;
 use crate::ast::{
@@ -83,7 +84,7 @@ pub(crate) fn generate_struct_named_fields(
 ) -> TokenStream {
     let recurse = props.iter().map(|prop| {
         let fname = format_ident!("{}", prop.field_name);
-        if prop.attrs.varint {
+        if prop.attrs.variant {
             if attr.trace {
                 quote! {
                     tracing::trace!("start decoding varint field <{}>", stringify!(#fname));
@@ -133,7 +134,7 @@ pub(crate) fn generate_struct_unnamed_fields(
 ) -> TokenStream {
     let recurse = props.iter().enumerate().map(|(idx, prop)| {
         let field_idx = syn::Index::from(idx);
-        if prop.attrs.varint {
+        if prop.attrs.variant {
             if attrs.trace {
                 quote! {
                     tracing::trace!("start decoding varint field <{}>", stringify!(#idx));
@@ -186,10 +187,12 @@ fn generate_decode_enum_impl(
     for (idx, prop) in props.iter().enumerate() {
         let id = &format_ident!("{}", prop.variant_name);
         let field_idx = if let Some(tag) = &prop.tag {
-            match TokenStream::from_str(tag) {
-                Ok(literal) => literal,
-                _ => LitInt::new(&idx.to_string(), Span::call_site()).to_token_stream(),
-            }
+            let tag = prop_attrs_type_value(&tag);
+            // match TokenStream::from_str(tag) {
+            //     Ok(literal) => literal,
+            //     _ => LitInt::new(&idx.to_string(), Span::call_site()).to_token_stream(),
+            // }
+            tag
         } else if attrs.encode_discriminant {
             match &prop.discriminant {
                 Some(dsc) => dsc.as_token_stream(),
@@ -297,10 +300,12 @@ fn generate_try_enum_from_kf_enum(
     for (idx, prop) in props.iter().enumerate() {
         let id = &format_ident!("{}", prop.variant_name);
         let field_idx = if let Some(tag) = &prop.tag {
-            match TokenStream::from_str(tag) {
-                Ok(literal) => literal,
-                _ => LitInt::new(&idx.to_string(), Span::call_site()).to_token_stream(),
-            }
+            let tag = prop_attrs_type_value(&tag);
+            // match TokenStream::from_str(tag) {
+            //     Ok(literal) => literal,
+            //     _ => LitInt::new(&idx.to_string(), Span::call_site()).to_token_stream(),
+            // }
+            tag
         } else if attrs.encode_discriminant {
             match &prop.discriminant {
                 Some(dsc) => dsc.as_token_stream(),

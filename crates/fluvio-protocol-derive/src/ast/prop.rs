@@ -3,7 +3,7 @@ use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote, ToTokens};
 use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
-use syn::{token, Attribute, Error, Expr, Field, LitInt, LitStr, Meta, Token, Type, parse_quote_spanned, Lit};
+use syn::{token, Attribute, Error, Expr, Field, LitInt, LitStr, Meta, Token, Type, parse_quote_spanned, Lit, parse_quote};
 use tracing::Instrument;
 
 use crate::util::{get_expr_value, get_lit_int, get_lit_str, parse_attributes};
@@ -117,26 +117,11 @@ impl NamedProp {
 }
 
 pub fn prop_attrs_type_value(attrs_type: &PropAttrsType) -> TokenStream {
-
     match &attrs_type {
-        PropAttrsType::LitStr(data) => {
-            quote! {
-                #data
-            }
-        }
-        PropAttrsType::LitFn(data) => {
-            quote! {
-                #data()
-            }
-        }
-        PropAttrsType::LitInt(data) => {
-            quote! {
-                #data
-            }
-        }
-        PropAttrsType::None => quote! {
-            -1
-        },
+        PropAttrsType::LitStr(data) =>  parse_quote!(#data),
+        PropAttrsType::LitFn(data) => parse_quote!(#data()),
+        PropAttrsType::LitInt(data) => parse_quote!(#data),
+        PropAttrsType::None => parse_quote!(-1),
     }
 }
 impl UnnamedProp {
@@ -284,7 +269,7 @@ pub enum PropAttrsType {
 }
 #[derive(Debug, Default, Clone)]
 pub(crate) struct PropAttrs {
-    pub varint: bool,
+    pub variant: bool,
     /// Will default to 0 if not specified.
     /// Note: `None` is encoded as "-1" so it's i16.
     pub min_version: Option<PropAttrsType>,
@@ -295,74 +280,38 @@ pub(crate) struct PropAttrs {
     /// Sets this value to the field when it isn't present in the buffer.
     /// Example: `#[fluvio(default = "-1")]`
     pub default_value: Option<String>,
+    pub ignorable: Option<bool>,
 }
 impl PropAttrs {
     pub fn from_ast(attrs: &[Attribute]) -> syn::Result<Self> {
         let mut prop_attrs = Self::default();
 
         parse_attributes!(attrs.iter(), "fluvio", meta,
-            "min_version", prop_attrs.min_version => |expr,attr_name: &str| {
-                let value = crate::util::get_expr_value(&attr_name, &expr)?;
+            "min_version", prop_attrs.min_version => |expr: Option<syn::Expr>, attr_span, attr_name: &str| {
+                let value = get_expr_value(&attr_name, &expr, attr_span)?;
                 prop_attrs.min_version = Some(value);
                 
                 Ok(())
             }
-            "max_version", prop_attrs.max_version => |expr,attr_name: &str| {
-                let value = crate::util::get_expr_value(&attr_name, &expr)?;
+            "max_version", prop_attrs.max_version => |expr: Option<syn::Expr>, attr_span, attr_name: &str| {
+                let value = get_expr_value(&attr_name, &expr, attr_span)?;
                 prop_attrs.max_version = Some(value);
                 
                 Ok(())
             }
-            "default", prop_attrs.default_value => |expr, _| {
-                let value = get_lit_str("default", &expr)?;
+            "default", prop_attrs.default_value => |expr: Option<syn::Expr>, attr_span, attr_name: &str| {
+                let value = get_lit_str(&attr_name, &expr, attr_span)?;
                 prop_attrs.default_value = Some(value.value());
                 
                 Ok(())
             }
+            "ignorable", prop_attrs.ignorable => |_: Option<Expr>, _, _| {
+                prop_attrs.ignorable = Some(true);
+                
+                Ok(())
+            }
         );
-
-        dbg!(&prop_attrs);
-        // // Find all supported field level attributes in one go.
-        // for attribute in attrs.iter() {
-        //     if attribute.path().is_ident("varint") {
-        //         prop_attrs.varint = true;
-        //     } else if attribute.path().is_ident("fluvio") {
-        //         if let Meta::List(list) = &attribute.meta {
-        //             if let Ok(list_args) =
-        //                 list.parse_args_with(Punctuated::<Meta, Token![,]>::parse_terminated)
-        //             {
-        //                 for args_meta in list_args.iter() {
-        //                     if let Meta::NameValue(args_data) = args_meta {
-        //                         let lit_expr = &args_data.value;
-
-        //                         if let Some(args_name) = args_data.path.get_ident() {
-        //                             if args_name == "min_version" {
-        //                                 // let value = get_lit_int("min_version", lit_expr)?;
-        //                                 // prop_attrs.min_version = value.base10_parse::<i16>()?;
-        //                                 let value = get_expr_value("min_version", lit_expr)?;
-        //                                 prop_attrs.min_version = value;
-        //                             } else if args_name == "max_version" {
-        //                                 // let value = get_lit_int("max_version", lit_expr)?;
-        //                                 // prop_attrs.max_version = Some(value.base10_parse::<i16>()?);
-        //                                 let value = get_expr_value("max_version", lit_expr)?;
-        //                                 prop_attrs.max_version = Some(value);
-        //                             } else if args_name == "default" {
-        //                                 let value = get_lit_str("default", lit_expr)?;
-        //                                 prop_attrs.default_value = Some(value.value());
-        //                             } else {
-        //                                 tracing::warn!(
-        //                                     "#[fluvio({})] does nothing here.",
-        //                                     args_name.to_token_stream().to_string(),
-        //                                 );
-        //                             }
-        //                         }
-        //                     }
-        //                 }
-        //             }
-        //         }
-        //     }
-        // }
-
+        
         Ok(prop_attrs)
     }
 }

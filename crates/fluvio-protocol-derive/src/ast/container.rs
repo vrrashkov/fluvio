@@ -1,3 +1,4 @@
+use proc_macro2::Span;
 use quote::ToTokens;
 use syn::{punctuated::Punctuated, Attribute, Meta, Result, Token};
 
@@ -32,21 +33,21 @@ impl ContainerAttributes {
                         {
                             for args_meta in list_args.iter() {
                                 if let Meta::NameValue(args_data) = args_meta {
-                                    let lit_expr = &args_data.value;
+                                    let lit_expr = Some(args_data.value.clone());
                                     if let Some(args_name) = args_data.path.get_ident() {
                                         if args_name == "api_min_version" {
-                                            let value = get_lit_int("api_min_version", lit_expr)?;
+                                            let value = get_lit_int("api_min_version", &lit_expr, Span::call_site())?;
                                             cont_attr.api_min_version =
                                                 value.base10_parse::<u16>()?;
                                         } else if args_name == "api_max_version" {
-                                            let value = get_lit_int("api_max_version", lit_expr)?;
+                                            let value = get_lit_int("api_max_version", &lit_expr, Span::call_site())?;
                                             cont_attr.api_max_version =
                                                 Some(value.base10_parse::<u16>()?);
                                         } else if args_name == "api_key" {
-                                            let value = get_lit_int("api_key", lit_expr)?;
+                                            let value = get_lit_int("api_key", &lit_expr, Span::call_site())?;
                                             cont_attr.api_key = Some(value.base10_parse::<u8>()?);
                                         } else if args_name == "response" {
-                                            let value = get_lit_str("response", lit_expr)?;
+                                            let value = get_lit_str("response", &lit_expr, Span::call_site())?;
                                             cont_attr.response = Some(value.value());
                                         } else {
                                             tracing::warn!(

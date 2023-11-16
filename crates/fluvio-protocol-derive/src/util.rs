@@ -1,3 +1,4 @@
+use proc_macro2::Span;
 use syn::{
     punctuated::Punctuated, spanned::Spanned, Attribute, Expr, ItemFn, Lit, LitStr, Meta, MetaList,
     MetaNameValue, Token, parse_quote_spanned,
@@ -18,14 +19,23 @@ macro_rules! parse_attributes {
 
             attr.parse_nested_meta(|$meta| {
 
-                let expr: Expr = $meta.value()?.parse()?;
                 let ident = $meta.path.get_ident().ok_or_else(|| $meta.error(ERROR))?;
                 let attr_name = &ident.to_string();
+                let attr_span = attr.span();
+       
                 match attr_name.as_str() {
                     $(
                         // check if the value is already defined
                         // if not we can execute the block of code
-                        $field if $opt.is_none() => { return $block(expr, attr_name)},
+                        $field if $opt.is_none() => { 
+                            if let Ok(value) = $meta.value() {
+                                let expr: Option<Expr> = Some(value.parse()?);
+                                dbg!(&attr_span);
+                                return $block(expr, attr_span, attr_name)
+                            } else {
+                                return $block(None, attr_span, attr_name)
+                            }
+                        },
                         $field => {return Err($meta.error(ALREADY_SPECIFIED))}
                     )*
 
@@ -37,10 +47,10 @@ macro_rules! parse_attributes {
 }
 pub(crate) use parse_attributes;
 
-pub fn get_expr_value<'a>(attr_name: &'a str, field: &'a Expr) -> syn::Result<PropAttrsType> {
+pub fn get_expr_value<'a>(attr_name: &'a str, field: &'a Option<Expr>, span: Span) -> syn::Result<PropAttrsType> {
   
     match &field {
-        Expr::Lit(lit_expr) => {
+        Some(Expr::Lit(lit_expr)) => {
             if let Lit::Int(lit) = &lit_expr.lit {
                 Ok(PropAttrsType::LitInt(lit.base10_parse::<i16>()?))
             } else if let Lit::Str(lit) = &lit_expr.lit {
@@ -50,62 +60,63 @@ pub fn get_expr_value<'a>(attr_name: &'a str, field: &'a Expr) -> syn::Result<Pr
                     if let Some(value) = &lit.value().strip_suffix("()") {
                         return Ok(PropAttrsType::LitFn(syn::Ident::new(
                             value,
-                            proc_macro2::Span::call_site(),
+                            span,
                         )));
                     }
                 }
 
                 Ok(PropAttrsType::LitStr(syn::Ident::new(
                     &lit.value(),
-                    proc_macro2::Span::call_site(),
+                    span,
                 )))
             } else {
-                Err(syn::Error::new_spanned(
-                    field,
-                    format!("Expected {attr_name} attribute to be an int: `{attr_name} = \"...\"`"),
+                Err(syn::Error::new(
+                    span,
+                    format!("Expected {attr_name} attribute to be a LitStr or LitInt: `{attr_name} = \"...\"`"),
                 ))
             }
         }
-        _ => Err(syn::Error::new_spanned(
-            field,
+        _ => Err(syn::Error::new(
+            span,
             format!("Expected {attr_name} attribute to be a Lit: `{attr_name} = \"...\"`"),
         )),
     }
 }
-pub fn get_lit_int<'a>(attr_name: &'a str, value: &'a Expr) -> syn::Result<&'a syn::LitInt> {
+
+pub fn get_lit_int<'a>(attr_name: &'a str, value: &'a Option<Expr>, span: Span) -> syn::Result<&'a syn::LitInt> {
     match &value {
-        Expr::Lit(lit_expr) => {
+        Some(Expr::Lit(lit_expr)) => {
             if let Lit::Int(lit) = &lit_expr.lit {
                 Ok(lit)
             } else {
-                Err(syn::Error::new_spanned(
-                    value,
+                Err(syn::Error::new(
+                    span,
                     format!("Expected {attr_name} attribute to be an int: `{attr_name} = \"...\"`"),
                 ))
             }
         }
-        _ => Err(syn::Error::new_spanned(
-            value,
+        _ => Err(syn::Error::new(
+            span,
             format!("Expected {attr_name} attribute to be a Lit: `{attr_name} = \"...\"`"),
         )),
     }
 }
-pub fn get_lit_str<'a>(attr_name: &'a str, value: &'a Expr) -> syn::Result<&'a syn::LitStr> {
+pub fn get_lit_str<'a>(attr_name: &'a str, value: &'a Option<Expr>, span: Span) -> syn::Result<&'a syn::LitStr> {
     match &value {
-        Expr::Lit(lit_expr) => {
+        Some(Expr::Lit(lit_expr)) => {
             if let Lit::Str(lit) = &lit_expr.lit {
                 Ok(lit)
             } else {
-                Err(syn::Error::new_spanned(
-                    value,
+                Err(syn::Error::new(
+                    span,
                     format!(
                         "Expected {attr_name} attribute to be a string: `{attr_name} = \"...\"`"
                     ),
                 ))
             }
         }
-        _ => Err(syn::Error::new_spanned(
-            value,
+        _ => Err(syn::Error::new(
+            span,
             format!("Expected {attr_name} attribute to be a Lit: `{attr_name} = \"...\"`"),
         )),
     }
@@ -147,12 +158,12 @@ pub(crate) fn find_name_value_from_meta(meta: &Meta, attr_name: &str) -> Option<
 /// find name value with str value
 pub(crate) fn find_string_name_value(meta: &Meta, attr_name: &str) -> Option<LitStr> {
     let meta_name_value = find_name_value_from_meta(meta, attr_name)?;
-    get_lit_str(attr_name, &meta_name_value.value).ok().cloned()
+    get_lit_str(attr_name, &Some(meta_name_value.value), Span::call_site()).ok().cloned()
 }
 
 pub(crate) fn find_int_name_value(meta: &Meta, attr_name: &str) -> Option<u64> {
     let meta_name_value = find_name_value_from_meta(meta, attr_name)?;
-    let value = get_lit_int(attr_name, &meta_name_value.value)
+    let value = get_lit_int(attr_name, &Some(meta_name_value.value), Span::call_site())
         .ok()
         .cloned()?;
     value.base10_parse::<u64>().ok()

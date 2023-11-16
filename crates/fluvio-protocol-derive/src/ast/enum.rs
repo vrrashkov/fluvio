@@ -8,7 +8,8 @@ use syn::{
 };
 
 use super::container::ContainerAttributes;
-use crate::util::{find_name_value_from_meta, get_lit_int};
+use super::prop::PropAttrsType;
+use crate::util::{find_name_value_from_meta, get_lit_int, parse_attributes, get_expr_value};
 
 pub(crate) struct FluvioEnum {
     pub enum_ident: Ident,
@@ -58,24 +59,39 @@ impl DiscrimantExpr {
 #[derive(Default)]
 pub(crate) struct EnumProp {
     pub variant_name: String,
-    pub tag: Option<String>,
+    pub tag: Option<PropAttrsType>,
     pub discriminant: Option<DiscrimantExpr>,
     pub kind: FieldKind,
+    pub min_version: Option<PropAttrsType>,
+    pub max_version: Option<PropAttrsType>,
 }
 impl EnumProp {
     pub fn from_ast(variant: Variant) -> syn::Result<Self> {
         let mut prop = EnumProp::default();
         let variant_ident = &variant.ident;
         prop.variant_name = variant_ident.to_string();
-        // Find all supported field level attributes in one go.
-        for attr in &variant.attrs {
-            if attr.path().is_ident("fluvio") {
-                if let Some(meta_name_value) = find_name_value_from_meta(&attr.meta, "tag") {
-                    let value = get_lit_int("tag", &meta_name_value.value)?;
-                    prop.tag = Some(value.base10_digits().to_owned());
-                }
+        let attrs = &variant.attrs;
+       
+        parse_attributes!(attrs.iter(), "fluvio", meta,
+            "min_version", prop.min_version => |expr: Option<syn::Expr>, attr_span, attr_name: &str| {
+                let value = get_expr_value(&attr_name, &expr, attr_span)?;
+                prop.min_version = Some(value);
+                
+                Ok(())
             }
-        }
+            "max_version", prop.max_version => |expr: Option<syn::Expr>, attr_span, attr_name: &str| {
+                let value = get_expr_value(&attr_name, &expr, attr_span)?;
+                prop.max_version = Some(value);
+                
+                Ok(())
+            }
+            "tag", prop.tag => |expr: Option<syn::Expr>, attr_span, attr_name: &str| {
+                let value = get_expr_value(&attr_name, &expr, attr_span)?;
+                prop.tag = Some(value);
+                
+                Ok(())
+            }
+        );
 
         prop.discriminant = if let Some((_, discriminant)) = variant.discriminant.clone() {
             match discriminant {
