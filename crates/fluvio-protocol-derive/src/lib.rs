@@ -12,7 +12,6 @@ use self::de::generate_decode_trait_impls;
 use self::de::generate_default_trait_impls;
 use self::ser::generate_encode_trait_impls;
 
-use ast::prop::PropAttrsType;
 use proc_macro::TokenStream;
 use syn::parse_macro_input;
 

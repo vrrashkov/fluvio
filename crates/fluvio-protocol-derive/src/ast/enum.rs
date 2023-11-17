@@ -9,7 +9,7 @@ use syn::{
 
 use super::container::ContainerAttributes;
 use super::prop::PropAttrsType;
-use crate::util::{find_name_value_from_meta, get_lit_int, parse_attributes, get_expr_value};
+use crate::util::{get_expr_value, parse_attributes, parse_attributes_data};
 
 pub(crate) struct FluvioEnum {
     pub enum_ident: Ident,
@@ -71,24 +71,24 @@ impl EnumProp {
         let variant_ident = &variant.ident;
         prop.variant_name = variant_ident.to_string();
         let attrs = &variant.attrs;
-       
-        parse_attributes!(attrs.iter(), "fluvio",
-            "min_version", prop.min_version => |expr: Option<syn::Expr>, attr_span, attr_name: &str| {
+
+        parse_attributes!(attrs.iter(), "fluvio", meta,
+            "min_version", prop.min_version => {
+                let (expr, attr_span, attr_name) = parse_attributes_data(meta);
                 let value = get_expr_value(&attr_name, &expr, attr_span)?;
                 prop.min_version = Some(value);
-                
                 Ok(())
             }
-            "max_version", prop.max_version => |expr: Option<syn::Expr>, attr_span, attr_name: &str| {
+            "max_version", prop.max_version => {
+                let (expr, attr_span, attr_name) = parse_attributes_data(meta);
                 let value = get_expr_value(&attr_name, &expr, attr_span)?;
                 prop.max_version = Some(value);
-                
                 Ok(())
             }
-            "tag", prop.tag => |expr: Option<syn::Expr>, attr_span, attr_name: &str| {
+            "tag", prop.tag => {
+                let (expr, attr_span, attr_name) = parse_attributes_data(meta);
                 let value = get_expr_value(&attr_name, &expr, attr_span)?;
                 prop.tag = Some(value);
-                
                 Ok(())
             }
         );

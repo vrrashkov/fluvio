@@ -1,14 +1,12 @@
 use std::str::FromStr;
 
-use proc_macro::Span;
-use proc_macro2::{Ident, TokenStream};
-use quote::{format_ident, quote, ToTokens, quote_spanned};
-use syn::punctuated::Punctuated;
-use syn::spanned::Spanned;
-use syn::{token, Attribute, Error, Expr, Field, LitInt, LitStr, Meta, Token, Type, parse_quote_spanned, Lit, parse_quote};
-use tracing::Instrument;
+use proc_macro2::{Ident, TokenStream, Span};
+use quote::quote;
 
-use crate::util::{get_expr_value, get_lit_int, get_lit_str, parse_attributes};
+use syn::spanned::Spanned;
+use syn::{parse_quote, Attribute, Error, Expr, Field, Type};
+
+use crate::util::{get_expr_value, get_lit_str, parse_attributes, parse_attributes_data};
 
 #[derive(Debug, Clone)]
 pub(crate) struct NamedProp {
@@ -51,14 +49,13 @@ impl NamedProp {
         field_stream: TokenStream,
         trace: bool,
     ) -> TokenStream {
-
         let field_name = &self.field_name;
 
         if let Some(min_version) = &self.attrs.min_version {
-            let min = prop_attrs_type_value(&min_version, None);
+            let min = prop_attrs_type_value(min_version, None);
 
             if let Some(max_version) = &self.attrs.max_version {
-                let max = prop_attrs_type_value(&max_version, None);
+                let max = prop_attrs_type_value(max_version, None);
                 let trace = if trace {
                     quote! {
                         else {
@@ -111,11 +108,10 @@ impl UnnamedProp {
         field_stream: TokenStream,
         trace: bool,
     ) -> TokenStream {
-
         if let Some(min_version) = &self.attrs.min_version {
-            let min = prop_attrs_type_value(&min_version, None);
+            let min = prop_attrs_type_value(min_version, None);
             if let Some(max_version) = &self.attrs.max_version {
-                let max = prop_attrs_type_value(&max_version, None);
+                let max = prop_attrs_type_value(max_version, None);
                 let trace = if trace {
                     quote! {
                         else {
@@ -156,7 +152,7 @@ impl UnnamedProp {
     }
 }
 /// Convert the values to TokenStream which will be ready to use variable value
-/// 
+///
 /// #Example
 /// ````
 /// // Function as a literal
@@ -172,49 +168,54 @@ impl UnnamedProp {
 /// let ident_type = Ident::new("u8", Span::call_site());
 /// let func_value = prop_attrs_type_value(prop_attr_type, Some(&ident_type))
 /// ````
-/// 
-pub fn prop_attrs_type_value(attrs_type: &PropAttrsType, ident_type: Option<&Ident>) -> TokenStream {
+///
+pub fn prop_attrs_type_value(
+    attrs_type: &PropAttrsType,
+    ident_type: Option<&Ident>,
+) -> TokenStream {
     match &attrs_type {
         PropAttrsType::Lit(data) => parse_quote!(#data),
         PropAttrsType::Fn(data) => parse_quote!(#data()),
-        PropAttrsType::Int(data) => if let Some(itype) = ident_type { 
-            TokenStream::from_str(&format!("{}_{}", data, itype)).unwrap() 
-        } else { 
-            // By default it's i16, because most places use it
-            parse_quote!(#data)
-         },
+        PropAttrsType::Int(data) => {
+            if let Some(itype) = ident_type {
+                TokenStream::from_str(&format!("{}_{}", data, itype)).unwrap()
+            } else {
+                // By default it's i16, because most places use it
+                parse_quote!(#data)
+            }
+        }
         PropAttrsType::None => parse_quote!(0),
     }
 }
 /// A type that will handle the values passed in properties
 /// and convert them later on to TokenStream.
-/// 
+///
 /// Using this type allows you to pass values multiple ways:
 /// # Example
-/// 
+///
 /// ```
 /// // Constant as a path
 /// const TEST: i16 = 1;
 /// #[fluvio(min_version = TEST)]
 /// ```
-/// 
+///
 /// ```
 /// // Constant as a literal
 /// const TEST: i16 = 1;
 /// #[fluvio(min_version = "TEST")]
 /// ```
-/// 
+///
 /// ```
 /// // Function as a literal
 /// fn test() -> i16 { 1 }
 /// #[fluvio(min_version = "test()")]
 /// ```
-/// 
+///
 /// ```
 /// // Int
 /// #[fluvio(min_version = 1)]
 /// ```
-/// 
+///
 /// None has a default Int value of 0
 #[derive(Debug, Default, Clone)]
 pub enum PropAttrsType {
@@ -241,32 +242,35 @@ impl PropAttrs {
     pub fn from_ast(attrs: &[Attribute]) -> syn::Result<Self> {
         let mut prop_attrs = Self::default();
 
-        parse_attributes!(attrs.iter(), "fluvio",
-            "min_version", prop_attrs.min_version => |expr: Option<syn::Expr>, attr_span, attr_name: &str| {
+        // let a: fn(expr: Option<syn::Expr>, attr_span: Span, attr_name: &str) = |expr: Option<syn::Expr>, attr_span: Span, attr_name: &str| {};
+        parse_attributes!(attrs.iter(), "fluvio", meta, 
+            "min_version", prop_attrs.min_version => {
+                let (expr, attr_span, attr_name) = parse_attributes_data(meta);
                 let value = get_expr_value(&attr_name, &expr, attr_span)?;
                 prop_attrs.min_version = Some(value);
-                
                 Ok(())
             }
-            "max_version", prop_attrs.max_version => |expr: Option<syn::Expr>, attr_span, attr_name: &str| {
+            "max_version", prop_attrs.max_version => {
+                let (expr, attr_span, attr_name) = parse_attributes_data(meta);
                 let value = get_expr_value(&attr_name, &expr, attr_span)?;
                 prop_attrs.max_version = Some(value);
-                
+
                 Ok(())
             }
-            "default", prop_attrs.default_value => |expr: Option<syn::Expr>, attr_span, attr_name: &str| {
+            "default", prop_attrs.default_value =>  {
+                let (expr, attr_span, attr_name) = parse_attributes_data(meta);
                 let value = get_lit_str(&attr_name, &expr, attr_span)?;
                 prop_attrs.default_value = Some(value.value());
-                
+
                 Ok(())
             }
-            "ignorable", prop_attrs.ignorable => |_: Option<Expr>, _, _| {
+            "ignorable", prop_attrs.ignorable => {
                 prop_attrs.ignorable = Some(true);
-                
+
                 Ok(())
             }
         );
-        
+
         Ok(prop_attrs)
     }
 }
