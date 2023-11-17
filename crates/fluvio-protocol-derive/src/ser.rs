@@ -106,7 +106,7 @@ fn parse_struct_named_props_encoding(
 ) -> TokenStream {
     let recurse = props.iter().map(|prop| {
         let fname = format_ident!("{}", prop.field_name);
-        if prop.attrs.variant {
+        if prop.attrs.varint {
             if attr.trace {
                 quote! {
                     tracing::trace!("encoding varint struct: <{}> field <{}> => {:?}",stringify!(#struct_ident),stringify!(#fname),&self.#fname);
@@ -155,7 +155,7 @@ fn parse_struct_unnamed_props_encoding(
     let recurse = props.iter().enumerate().map(|(idx, prop)| {
 
         let field_idx = syn::Index::from(idx);
-        if prop.attrs.variant {
+        if prop.attrs.varint {
             if attr.trace {
                 quote! {
                     tracing::trace!("encoding varint struct: <{}> field <{}> => {:?}",stringify!(#struct_ident),stringify!(#idx),&self.#field_idx);
@@ -217,7 +217,7 @@ fn parse_struct_named_props_size(
 ) -> TokenStream {
     let recurse = props.iter().map(|prop| {
         let fname = format_ident!("{}", prop.field_name);
-        if prop.attrs.variant {
+        if prop.attrs.varint {
             if attr.trace {
                 quote! {
                     let write_size = self.#fname.var_write_size();
@@ -257,7 +257,7 @@ fn parse_struct_unnamed_props_size(
 ) -> TokenStream {
     let recurse = props.iter().enumerate().map(|(idx, prop)| {
         let field_idx = syn::Index::from(idx);
-        if prop.attrs.variant {
+        if prop.attrs.varint {
             if attr.trace {
                 quote! {
                     let write_size = self.#field_idx.var_write_size();

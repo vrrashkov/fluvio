@@ -48,6 +48,7 @@ pub struct TopicProduceResponse {
 fn test2() -> i16 {
     122
 }
+const ASD: i16 = 12;
 #[derive(Encoder, Decoder, FluvioDefault, Debug)]
 pub struct PartitionProduceResponse {
     /// The partition index.
@@ -66,6 +67,6 @@ pub struct PartitionProduceResponse {
     pub log_append_time_ms: i64,
 
     /// The log start offset.
-    #[fluvio(min_version = "test2()", ignorable)]
+    #[fluvio(min_version = ASD, ignorable)]
     pub log_start_offset: i64,
 }

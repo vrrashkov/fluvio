@@ -85,7 +85,7 @@ pub(crate) fn generate_struct_named_fields(
 ) -> TokenStream {
     let recurse = props.iter().map(|prop| {
         let fname = format_ident!("{}", prop.field_name);
-        if prop.attrs.variant {
+        if prop.attrs.varint {
             if attr.trace {
                 quote! {
                     tracing::trace!("start decoding varint field <{}>", stringify!(#fname));
@@ -135,7 +135,7 @@ pub(crate) fn generate_struct_unnamed_fields(
 ) -> TokenStream {
     let recurse = props.iter().enumerate().map(|(idx, prop)| {
         let field_idx = syn::Index::from(idx);
-        if prop.attrs.variant {
+        if prop.attrs.varint {
             if attrs.trace {
                 quote! {
                     tracing::trace!("start decoding varint field <{}>", stringify!(#idx));

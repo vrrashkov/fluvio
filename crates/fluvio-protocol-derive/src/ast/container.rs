@@ -2,7 +2,7 @@ use proc_macro2::Span;
 use quote::ToTokens;
 use syn::{punctuated::Punctuated, Attribute, Meta, Result, Token};
 
-use crate::util::{get_lit_int, get_lit_str};
+use crate::util::{get_lit_int, get_lit_str, parse_attributes};
 
 #[derive(Debug, Default)]
 pub struct ContainerAttributes {

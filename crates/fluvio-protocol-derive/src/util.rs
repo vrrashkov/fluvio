@@ -3,14 +3,20 @@ use std::ops::Deref;
 use proc_macro2::Span;
 use syn::{
     punctuated::Punctuated, spanned::Spanned, Attribute, Expr, ItemFn, Lit, LitStr, Meta, MetaList,
-    MetaNameValue, Token, parse_quote_spanned, ExprUnary, ExprPath,
+    MetaNameValue, Token, parse_quote_spanned, ExprUnary, ExprPath, ExprCall,
 };
 
 use crate::ast::prop::PropAttrsType;
 
 /// Parses the specified attributes from a `syn::Attribute` iterator.
+/// # Arguments
+/// * `attrs` - `&[Attribute]` iterator
+/// * `attr_ident` - The path ident to search for
+/// * `field` - nested path to search for
+/// * `opt` - mutable variable to save data into
+/// * `block` - closure that returns `|expr: Option<syn::Expr>, attr_span, attr_name: &str|`
 macro_rules! parse_attributes {
-    ($attrs:expr, $attr_ident:literal, $meta:ident, $($field:pat, $opt:expr => $block:expr)*) => {
+    ($attrs:expr, $attr_ident:literal, $($field:pat, $opt:expr => $block:expr)*) => {
         const ERROR: &str = concat!("unrecognized ", $attr_ident, " attribute");
         const ALREADY_SPECIFIED: &str = concat!($attr_ident, " attribute already specified");
 
@@ -19,28 +25,28 @@ macro_rules! parse_attributes {
                 continue;
             }
 
-            attr.parse_nested_meta(|$meta| {
+            let attr_span = attr.span();
+            attr.parse_nested_meta(|meta| {
 
-                let ident = $meta.path.get_ident().ok_or_else(|| $meta.error(ERROR))?;
+                let ident = meta.path.get_ident().ok_or_else(|| meta.error(ERROR))?;
                 let attr_name = &ident.to_string();
-                let attr_span = attr.span();
        
                 match attr_name.as_str() {
                     $(
                         // check if the value is already defined
                         // if not we can execute the block of code
                         $field if $opt.is_none() => { 
-                            if let Ok(value) = $meta.value() {
+                            if let Ok(value) = meta.value() {
                                 let expr: Option<Expr> = Some(value.parse()?);
                                 return $block(expr, attr_span, attr_name)
                             } else {
                                 return $block(None, attr_span, attr_name)
                             }
                         },
-                        $field => {return Err($meta.error(ALREADY_SPECIFIED))}
+                        $field => {return Err(meta.error(ALREADY_SPECIFIED))}
                     )*
 
-                    _ => return Err($meta.error(ERROR)),
+                    _ => return Err(meta.error(ERROR)),
                 }
             })?;
         }
@@ -57,19 +63,21 @@ pub fn get_expr_value<'a>(attr_name: &'a str, field: &'a Option<Expr>, span: Spa
             } else if let Lit::Str(lit) = &lit_expr.lit {
                 let value = &lit.value();
 
+                // To handle functions passed as lit we check for ()
+                // And strip it when creating the new Ident so we can use it later on
                 if value.contains("(") && value.contains(")") {
                     if let Some(value) = &lit.value().strip_suffix("()") {
-                        dbg!(value);
                         return Ok(PropAttrsType::Fn(syn::Ident::new(
                             value,
-                            span,
+                            lit.span(),
                         )));
                     }
                 }
 
+                dbg!(value);
                 Ok(PropAttrsType::Lit(syn::Ident::new(
-                    &lit.value(),
-                    span,
+                    value,
+                    lit.span(),
                 )))
             } else {
                 Err(syn::Error::new(
@@ -97,7 +105,7 @@ pub fn get_expr_value<'a>(attr_name: &'a str, field: &'a Option<Expr>, span: Spa
         Some(Expr::Path(ExprPath { path, .. })) => {
             // For now we only need Path just to handle cases where Constant are being passed without "" quotes
             if let Some(path_ident) = path.get_ident() {
-                println!("ident: {:?}, span_current: {:?}, span_outer: {:?}", path_ident.to_string(), path_ident.span(), span);
+                // println!("path ident: {:?}, span_current: {:?}, span_outer: {:?}", path_ident.to_string(), path_ident.span(), span);
                 return Ok(PropAttrsType::Lit(syn::Ident::new(
                     &path_ident.to_string(),
                     path_ident.span(),
@@ -114,7 +122,7 @@ pub fn get_expr_value<'a>(attr_name: &'a str, field: &'a Option<Expr>, span: Spa
 
             Err(syn::Error::new(
                 span,
-                format!("Expected {attr_name} attribute to be a Lit: `{attr_name} = \"...\"`"),
+                format!("Expected {attr_name} attribute to be a Lit/Path/Unary: `{attr_name} = \"...\"`"),
             ))
         } ,
     }

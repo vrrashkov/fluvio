@@ -43,20 +43,6 @@ impl NamedProp {
             attrs,
         };
 
-        // let tokens = prop_attrs_type_quote(prop.attrs.min_version);
-        // let test = prop_attrs_type2!();
-        // let result = validate_versions(
-        //     prop.attrs.min_version,
-        //     prop.attrs.max_version,
-        //     Some(&prop.field_name),
-        // );
-
-        // if let Some(err) = result {
-        //     Err(syn::Error::new(field.span(), err))
-        // } else {
-        //     Ok(prop)
-        // }
-
         Ok(prop)
     }
 
@@ -66,13 +52,6 @@ impl NamedProp {
         trace: bool,
     ) -> TokenStream {
 
-        // let field_stream = validate_versions_tokens(
-        //     field_stream,
-        //     &self.attrs.min_version,
-        //     &self.attrs.max_version,
-        //     Some(&self.field_name),
-        // );
-       
         let field_name = &self.field_name;
 
         if let Some(min_version) = &self.attrs.min_version {
@@ -118,32 +97,12 @@ impl NamedProp {
     }
 }
 
-pub fn prop_attrs_type_value(attrs_type: &PropAttrsType, ident_type: Option<&Ident>) -> TokenStream {
-    match &attrs_type {
-        PropAttrsType::Lit(data) =>  parse_quote!(#data),
-        PropAttrsType::Fn(data) => parse_quote!(#data()),
-        PropAttrsType::Int(data) => if let Some(itype) = ident_type { 
-            TokenStream::from_str(&format!("{}_{}", data, itype)).unwrap() 
-        } else { 
-            // By default it's i16, because most places use it
-            parse_quote!(#data)
-         },
-        PropAttrsType::None => if let Some(itype) = ident_type { parse_quote!(-1#itype) } else { parse_quote!(-1) },
-    }
-}
 impl UnnamedProp {
     pub fn from_ast(field: &Field) -> syn::Result<Self> {
         let attrs = PropAttrs::from_ast(&field.attrs)?;
         let field_type = field.ty.clone();
         let prop = UnnamedProp { field_type, attrs };
 
-        // let result = validate_versions(prop.attrs.min_version, prop.attrs.max_version, None);
-
-        // if let Some(err) = result {
-        //     Err(syn::Error::new(field.span(), err))
-        // } else {
-        //     Ok(prop)
-        // }
         Ok(prop)
     }
 
@@ -152,11 +111,7 @@ impl UnnamedProp {
         field_stream: TokenStream,
         trace: bool,
     ) -> TokenStream {
-        // let field_stream = validate_versions_tokens(field_stream,
-        //         &self.attrs.min_version,
-        //         &self.attrs.max_version,
-        //         None
-        //     );
+
         if let Some(min_version) = &self.attrs.min_version {
             let min = prop_attrs_type_value(&min_version, None);
             if let Some(max_version) = &self.attrs.max_version {
@@ -200,72 +155,67 @@ impl UnnamedProp {
         }
     }
 }
-
-// pub fn validate_versions_tokens(
-//     token_stream: TokenStream,
-//     min_prop: &PropAttrsType,
-//     max_props: &Option<PropAttrsType>,
-//     field: Option<&str>,
-// ) -> TokenStream {
-//     let min = prop_attrs_type_value(&min_prop);
-
-//     let version_check_result = match max_props {
-//         Some(max_values) => {
-//             let max = prop_attrs_type_value(max_values);
-
-//             dbg!(format!("min: {}, max: {}", &min, &max));
-//             match field {
-//                 Some(_) => quote! {
-//                     if #min > #max {
-//                         println!(format!("hereee min: {}, max: {}", #min, #max))
-//                         //compile_error!("Field max_version is less than min version");
-//                     }
-//                 },
-//                 None => quote! {
-//                     if #min > #max {
-//                         compile_error!("Max version is less than min version");
-//                     }
-//                 },
-//             }
-//         }
-//         None => match field {
-//             Some(_) => quote! {
-//                 println!("test min_version{}, ", #min);
-//                 // if #min < 0 {
-//                 //     compile_error!("Field min_version must be positive.");
-//                 // }
-//             },
-//             None => quote! {
-//                 if #min < 0 {
-//                     compile_error!("Min version must be positive.");
-//                 }
-//             },
-//         },
-//     };
-
-    
-//     quote! {
-//         #version_check_result
-//         #token_stream
-//     }
-// }
-// pub fn validate_versions(min: i16, max: Option<i16>, field: Option<&str>) -> Option<String> {
-//     match (max, field) {
-//         // Print name in named fields
-//         (Some(max), Some(field)) if min > max => Some(format!(
-//             "On {field}, max version({max}) is less than min({min})."
-//         )),
-//         // No name to print in unnamed fields
-//         (Some(max), None) if min > max => {
-//             Some(format!("Max version({max}) is less than min({min})."))
-//         }
-//         (None, Some(field)) if min < 0 => {
-//             Some(format!("On {field} min version({min}) must be positive."))
-//         }
-//         (None, None) if min < 0 => Some(format!("Min version({min}) must be positive.")),
-//         _ => None,
-//     }
-// }
+/// Convert the values to TokenStream which will be ready to use variable value
+/// 
+/// #Example
+/// ````
+/// // Function as a literal
+/// fn test() -> i16 { 1 }
+/// #[fluvio(min_version = "test()")]
+/// ````
+/// To use the value from the test() function:
+/// ````
+/// let func_value = prop_attrs_type_value(prop_attr_type, None)
+/// ````
+/// To set a specific type you can do this:
+/// ````
+/// let ident_type = Ident::new("u8", Span::call_site());
+/// let func_value = prop_attrs_type_value(prop_attr_type, Some(&ident_type))
+/// ````
+/// 
+pub fn prop_attrs_type_value(attrs_type: &PropAttrsType, ident_type: Option<&Ident>) -> TokenStream {
+    match &attrs_type {
+        PropAttrsType::Lit(data) => parse_quote!(#data),
+        PropAttrsType::Fn(data) => parse_quote!(#data()),
+        PropAttrsType::Int(data) => if let Some(itype) = ident_type { 
+            TokenStream::from_str(&format!("{}_{}", data, itype)).unwrap() 
+        } else { 
+            // By default it's i16, because most places use it
+            parse_quote!(#data)
+         },
+        PropAttrsType::None => parse_quote!(0),
+    }
+}
+/// A type that will handle the values passed in properties
+/// and convert them later on to TokenStream.
+/// 
+/// Using this type allows you to pass values multiple ways:
+/// # Example
+/// 
+/// ```
+/// // Constant as a path
+/// const TEST: i16 = 1;
+/// #[fluvio(min_version = TEST)]
+/// ```
+/// 
+/// ```
+/// // Constant as a literal
+/// const TEST: i16 = 1;
+/// #[fluvio(min_version = "TEST")]
+/// ```
+/// 
+/// ```
+/// // Function as a literal
+/// fn test() -> i16 { 1 }
+/// #[fluvio(min_version = "test()")]
+/// ```
+/// 
+/// ```
+/// // Int
+/// #[fluvio(min_version = 1)]
+/// ```
+/// 
+/// None has a default Int value of 0
 #[derive(Debug, Default, Clone)]
 pub enum PropAttrsType {
     Lit(Ident),
@@ -276,13 +226,11 @@ pub enum PropAttrsType {
 }
 #[derive(Debug, Default, Clone)]
 pub(crate) struct PropAttrs {
-    pub variant: bool,
+    pub varint: bool,
     /// Will default to 0 if not specified.
-    /// Note: `None` is encoded as "-1" so it's i16.
     pub min_version: Option<PropAttrsType>,
     /// Optional max version.
     /// The field won't be decoded from the buffer if it has a larger version than what is specified here.
-    /// Note: `None` is encoded as "-1" so it's i16.
     pub max_version: Option<PropAttrsType>,
     /// Sets this value to the field when it isn't present in the buffer.
     /// Example: `#[fluvio(default = "-1")]`
@@ -293,7 +241,7 @@ impl PropAttrs {
     pub fn from_ast(attrs: &[Attribute]) -> syn::Result<Self> {
         let mut prop_attrs = Self::default();
 
-        parse_attributes!(attrs.iter(), "fluvio", meta,
+        parse_attributes!(attrs.iter(), "fluvio",
             "min_version", prop_attrs.min_version => |expr: Option<syn::Expr>, attr_span, attr_name: &str| {
                 let value = get_expr_value(&attr_name, &expr, attr_span)?;
                 prop_attrs.min_version = Some(value);

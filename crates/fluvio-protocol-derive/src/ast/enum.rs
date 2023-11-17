@@ -72,7 +72,7 @@ impl EnumProp {
         prop.variant_name = variant_ident.to_string();
         let attrs = &variant.attrs;
        
-        parse_attributes!(attrs.iter(), "fluvio", meta,
+        parse_attributes!(attrs.iter(), "fluvio",
             "min_version", prop.min_version => |expr: Option<syn::Expr>, attr_span, attr_name: &str| {
                 let value = get_expr_value(&attr_name, &expr, attr_span)?;
                 prop.min_version = Some(value);
