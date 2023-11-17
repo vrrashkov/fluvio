@@ -45,7 +45,7 @@ pub struct TopicProduceResponse {
     /// Each partition that we produced to within the topic.
     pub partitions: Vec<PartitionProduceResponse>,
 }
-const fn test2() -> i16 {
+fn test2() -> i16 {
     122
 }
 #[derive(Encoder, Decoder, FluvioDefault, Debug)]

@@ -1,7 +1,9 @@
+use std::ops::Deref;
+
 use proc_macro2::Span;
 use syn::{
     punctuated::Punctuated, spanned::Spanned, Attribute, Expr, ItemFn, Lit, LitStr, Meta, MetaList,
-    MetaNameValue, Token, parse_quote_spanned,
+    MetaNameValue, Token, parse_quote_spanned, ExprUnary, ExprPath,
 };
 
 use crate::ast::prop::PropAttrsType;
@@ -30,7 +32,6 @@ macro_rules! parse_attributes {
                         $field if $opt.is_none() => { 
                             if let Ok(value) = $meta.value() {
                                 let expr: Option<Expr> = Some(value.parse()?);
-                                dbg!(&attr_span);
                                 return $block(expr, attr_span, attr_name)
                             } else {
                                 return $block(None, attr_span, attr_name)
@@ -52,20 +53,21 @@ pub fn get_expr_value<'a>(attr_name: &'a str, field: &'a Option<Expr>, span: Spa
     match &field {
         Some(Expr::Lit(lit_expr)) => {
             if let Lit::Int(lit) = &lit_expr.lit {
-                Ok(PropAttrsType::LitInt(lit.base10_parse::<i16>()?))
+                Ok(PropAttrsType::Int(lit.base10_parse::<i16>()?))
             } else if let Lit::Str(lit) = &lit_expr.lit {
                 let value = &lit.value();
 
                 if value.contains("(") && value.contains(")") {
                     if let Some(value) = &lit.value().strip_suffix("()") {
-                        return Ok(PropAttrsType::LitFn(syn::Ident::new(
+                        dbg!(value);
+                        return Ok(PropAttrsType::Fn(syn::Ident::new(
                             value,
                             span,
                         )));
                     }
                 }
 
-                Ok(PropAttrsType::LitStr(syn::Ident::new(
+                Ok(PropAttrsType::Lit(syn::Ident::new(
                     &lit.value(),
                     span,
                 )))
@@ -76,10 +78,45 @@ pub fn get_expr_value<'a>(attr_name: &'a str, field: &'a Option<Expr>, span: Spa
                 ))
             }
         }
-        _ => Err(syn::Error::new(
-            span,
-            format!("Expected {attr_name} attribute to be a Lit: `{attr_name} = \"...\"`"),
-        )),
+        Some(Expr::Unary(ExprUnary { expr, .. })) => {
+            // When passing -1 as a value it is returned as type Unary
+            // So to handle that we are checking if it's Unary Lit and continue as usual
+            // If needed this can be expended to handle the Unary operators
+            // But it doesn't seem that is necessary currently
+            if let Expr::Lit(lit_expr) = expr.deref() {
+                if let Lit::Int(lit) = &lit_expr.lit {
+                    return Ok(PropAttrsType::Int(lit.base10_parse::<i16>()?))
+                }
+            }
+
+            Err(syn::Error::new(
+                span,
+                format!("Expected {attr_name} to be valid Int: `{attr_name} = \"...\"`"),
+            ))
+        }
+        Some(Expr::Path(ExprPath { path, .. })) => {
+            // For now we only need Path just to handle cases where Constant are being passed without "" quotes
+            if let Some(path_ident) = path.get_ident() {
+                println!("ident: {:?}, span_current: {:?}, span_outer: {:?}", path_ident.to_string(), path_ident.span(), span);
+                return Ok(PropAttrsType::Lit(syn::Ident::new(
+                    &path_ident.to_string(),
+                    path_ident.span(),
+                )));
+            }
+
+            Err(syn::Error::new(
+                span,
+                format!("Attribute {attr_name} needs to be a valid Path: `{attr_name} = \"...\"`"),
+            ))
+        }
+        _ =>{
+            dbg!(field);
+
+            Err(syn::Error::new(
+                span,
+                format!("Expected {attr_name} attribute to be a Lit: `{attr_name} = \"...\"`"),
+            ))
+        } ,
     }
 }
 

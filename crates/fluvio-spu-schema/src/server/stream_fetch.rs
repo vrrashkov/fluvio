@@ -55,6 +55,7 @@ pub const SMARTMODULE_TIMESTAMP: i16 = 22;
 fn test_chain() -> i16 {
     17
 }
+pub const TEST_CONSTANT: i16 = 33;
 /// Fetch records continuously
 /// Output will be send back as stream
 #[allow(deprecated)]
@@ -83,7 +84,7 @@ pub struct StreamFetchRequest<R> {
     #[fluvio(min_version = 16, max_version = 18)]
     smartmodule: Option<SmartModuleInvocation>,
     #[builder(setter(skip))]
-    #[fluvio(min_version = 33, max_version = 18)]
+    #[fluvio(min_version = "TEST_CONSTANT", max_version = 18)]
     derivedstream: Option<DerivedStreamInvocation>,
     #[builder(default)]
     #[fluvio(min_version = "test_chain()")]

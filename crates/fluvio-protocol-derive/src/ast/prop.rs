@@ -1,6 +1,8 @@
+use std::str::FromStr;
+
 use proc_macro::Span;
 use proc_macro2::{Ident, TokenStream};
-use quote::{format_ident, quote, ToTokens};
+use quote::{format_ident, quote, ToTokens, quote_spanned};
 use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
 use syn::{token, Attribute, Error, Expr, Field, LitInt, LitStr, Meta, Token, Type, parse_quote_spanned, Lit, parse_quote};
@@ -74,10 +76,10 @@ impl NamedProp {
         let field_name = &self.field_name;
 
         if let Some(min_version) = &self.attrs.min_version {
-            let min = prop_attrs_type_value(&min_version);
+            let min = prop_attrs_type_value(&min_version, None);
 
             if let Some(max_version) = &self.attrs.max_version {
-                let max = prop_attrs_type_value(&max_version);
+                let max = prop_attrs_type_value(&max_version, None);
                 let trace = if trace {
                     quote! {
                         else {
@@ -116,12 +118,17 @@ impl NamedProp {
     }
 }
 
-pub fn prop_attrs_type_value(attrs_type: &PropAttrsType) -> TokenStream {
+pub fn prop_attrs_type_value(attrs_type: &PropAttrsType, ident_type: Option<&Ident>) -> TokenStream {
     match &attrs_type {
-        PropAttrsType::LitStr(data) =>  parse_quote!(#data),
-        PropAttrsType::LitFn(data) => parse_quote!(#data()),
-        PropAttrsType::LitInt(data) => parse_quote!(#data),
-        PropAttrsType::None => parse_quote!(-1),
+        PropAttrsType::Lit(data) =>  parse_quote!(#data),
+        PropAttrsType::Fn(data) => parse_quote!(#data()),
+        PropAttrsType::Int(data) => if let Some(itype) = ident_type { 
+            TokenStream::from_str(&format!("{}_{}", data, itype)).unwrap() 
+        } else { 
+            // By default it's i16, because most places use it
+            parse_quote!(#data)
+         },
+        PropAttrsType::None => if let Some(itype) = ident_type { parse_quote!(-1#itype) } else { parse_quote!(-1) },
     }
 }
 impl UnnamedProp {
@@ -151,9 +158,9 @@ impl UnnamedProp {
         //         None
         //     );
         if let Some(min_version) = &self.attrs.min_version {
-            let min = prop_attrs_type_value(&min_version);
+            let min = prop_attrs_type_value(&min_version, None);
             if let Some(max_version) = &self.attrs.max_version {
-                let max = prop_attrs_type_value(&max_version);
+                let max = prop_attrs_type_value(&max_version, None);
                 let trace = if trace {
                     quote! {
                         else {
@@ -261,9 +268,9 @@ impl UnnamedProp {
 // }
 #[derive(Debug, Default, Clone)]
 pub enum PropAttrsType {
-    LitStr(Ident),
-    LitFn(Ident),
-    LitInt(i16),
+    Lit(Ident),
+    Fn(Ident),
+    Int(i16),
     #[default]
     None,
 }
