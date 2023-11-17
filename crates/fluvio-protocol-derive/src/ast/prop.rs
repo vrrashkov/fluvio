@@ -1,12 +1,12 @@
 use std::str::FromStr;
 
-use proc_macro2::{Ident, TokenStream, Span};
+use proc_macro2::{Ident, TokenStream};
 use quote::quote;
 
 use syn::spanned::Spanned;
-use syn::{parse_quote, Attribute, Error, Expr, Field, Type};
+use syn::{parse_quote, Attribute, Error, Field, Type};
 
-use crate::util::{get_expr_value, get_lit_str, parse_attributes, parse_attributes_data};
+use crate::util::{get_expr_value_from_meta, get_lit_str, parse_attributes, parse_attributes_data};
 
 #[derive(Debug, Clone)]
 pub(crate) struct NamedProp {
@@ -216,7 +216,7 @@ pub fn prop_attrs_type_value(
 /// #[fluvio(min_version = 1)]
 /// ```
 ///
-/// None has a default Int value of 0
+/// None has a default Int value of 0 which is set in prop_attrs_type_value
 #[derive(Debug, Default, Clone)]
 pub enum PropAttrsType {
     Lit(Ident),
@@ -243,31 +243,22 @@ impl PropAttrs {
         let mut prop_attrs = Self::default();
 
         // let a: fn(expr: Option<syn::Expr>, attr_span: Span, attr_name: &str) = |expr: Option<syn::Expr>, attr_span: Span, attr_name: &str| {};
-        parse_attributes!(attrs.iter(), "fluvio", meta, 
+        parse_attributes!(attrs.iter(), "fluvio", meta,
             "min_version", prop_attrs.min_version => {
-                let (expr, attr_span, attr_name) = parse_attributes_data(meta);
-                let value = get_expr_value(&attr_name, &expr, attr_span)?;
+                let value = get_expr_value_from_meta(&meta)?;
                 prop_attrs.min_version = Some(value);
-                Ok(())
             }
             "max_version", prop_attrs.max_version => {
-                let (expr, attr_span, attr_name) = parse_attributes_data(meta);
-                let value = get_expr_value(&attr_name, &expr, attr_span)?;
+                let value = get_expr_value_from_meta(&meta)?;
                 prop_attrs.max_version = Some(value);
-
-                Ok(())
             }
             "default", prop_attrs.default_value =>  {
-                let (expr, attr_span, attr_name) = parse_attributes_data(meta);
+                let (expr, attr_span, attr_name) = parse_attributes_data(&meta);
                 let value = get_lit_str(&attr_name, &expr, attr_span)?;
                 prop_attrs.default_value = Some(value.value());
-
-                Ok(())
             }
             "ignorable", prop_attrs.ignorable => {
                 prop_attrs.ignorable = Some(true);
-
-                Ok(())
             }
         );
 

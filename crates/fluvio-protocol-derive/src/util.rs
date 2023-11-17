@@ -2,8 +2,8 @@ use std::ops::Deref;
 
 use proc_macro2::Span;
 use syn::{
-    punctuated::Punctuated, Attribute, Expr, ExprPath, ExprUnary, Lit, LitStr, Meta, MetaList,
-    MetaNameValue, Token, meta::ParseNestedMeta,
+    meta::ParseNestedMeta, punctuated::Punctuated, Attribute, Expr, ExprPath, ExprUnary, Lit,
+    LitStr, Meta, MetaList, MetaNameValue, Token,
 };
 
 use crate::ast::prop::PropAttrsType;
@@ -12,14 +12,15 @@ use crate::ast::prop::PropAttrsType;
 /// # Arguments
 /// * `attrs` - `&[Attribute]` iterator
 /// * `attr_ident` - The path ident to search for
+/// * `meta` - a return variable that will give us the parse_nested_meta of each element
 /// * `field` - nested path to search for
 /// * `opt` - mutable variable to save data into
-/// * `block` - closure that returns `|expr: Option<syn::Expr>, attr_span, attr_name: &str|`
+/// * `block` - block of code to execute
 macro_rules! parse_attributes {
     ($attrs:expr, $attr_ident:literal, $meta: ident, $($field:pat, $opt:expr => $block:expr)*) => {
         const ERROR: &str = concat!("unrecognized ", $attr_ident, " attribute");
         const ALREADY_SPECIFIED: &str = concat!($attr_ident, " attribute already specified");
-     
+
         for attr in $attrs {
             if !attr.path().is_ident($attr_ident) {
                 continue;
@@ -29,11 +30,11 @@ macro_rules! parse_attributes {
 
                 let ident = $meta.path.get_ident().ok_or_else(|| $meta.error(ERROR))?;
                 let attr_name = &ident.to_string();
-                
+
                 match attr_name.as_str() {
                     $(
                         $field if $opt.is_none() => {
-                            return $block
+                            return Ok($block)
                         },
                         $field => {return Err($meta.error(ALREADY_SPECIFIED))}
                     )*
@@ -45,30 +46,35 @@ macro_rules! parse_attributes {
     };
 }
 
-
-pub fn parse_attributes_data(meta: ParseNestedMeta) -> (Option<syn::Expr>, Span, String) {
+// This piece of code can be included in the macro but there are some issues
+// For example if we return this from the parse_attributes! macro with closure function
+// It works but there is an issue with clippy giving a "warning: try not to call a closure in the expression where it is declared"
+// Here is how this can be fixed if used in macro: https://stackoverflow.com/questions/76989679/how-to-call-a-closure-from-a-macro
+// So to do this in a less work around way we use a separate function like so:
+// We return $meta variable like shown here: https://github.com/rust-lang/rust-clippy/issues/1553
+pub fn parse_attributes_data(meta: &ParseNestedMeta) -> (Option<syn::Expr>, Span, String) {
     // we can safely unwarp as this is already checked from the parse_attributes macro
     let ident = meta.path.get_ident().unwrap();
+    // to_string so we can return the name of the ident
+    // helps to reduce the repetitiveness of attribute names
     let attr_name = ident.to_string();
     let attr_span = ident.span();
 
-    let result = if let Ok(value) = meta.value() {
-        match value.parse() {
-            Ok(expr) => {
-                (Some(expr), attr_span, attr_name)
-            },
-            Err(_) => {
-                (None, attr_span, attr_name)
-            },
+    if let Ok(value) = meta.value() {
+        if let Ok(expr) = value.parse() {
+            return (Some(expr), attr_span, attr_name);
         }
-    } else {
-        (None, attr_span, attr_name)
-    };
+    }
 
-    result
+    (None, attr_span, attr_name)
 }
+
 pub(crate) use parse_attributes;
 
+pub fn get_expr_value_from_meta(meta: &ParseNestedMeta) -> syn::Result<PropAttrsType> {
+    let (expr, attr_span, attr_name) = parse_attributes_data(meta);
+    get_expr_value(&attr_name, &expr, attr_span)
+}
 pub fn get_expr_value<'a>(
     attr_name: &'a str,
     field: &'a Option<Expr>,
@@ -89,7 +95,6 @@ pub fn get_expr_value<'a>(
                     }
                 }
 
-                dbg!(value);
                 Ok(PropAttrsType::Lit(syn::Ident::new(value, lit.span())))
             } else {
                 Err(syn::Error::new(
@@ -101,7 +106,7 @@ pub fn get_expr_value<'a>(
         Some(Expr::Unary(ExprUnary { expr, .. })) => {
             // When passing -1 as a value it is returned as type Unary
             // So to handle that we are checking if it's Unary Lit and continue as usual
-            // If needed this can be expended to handle the Unary operators
+            // If needed this can be extended to handle the Unary operators
             // But it doesn't seem that is necessary currently
             if let Expr::Lit(lit_expr) = expr.deref() {
                 if let Lit::Int(lit) = &lit_expr.lit {
@@ -115,9 +120,8 @@ pub fn get_expr_value<'a>(
             ))
         }
         Some(Expr::Path(ExprPath { path, .. })) => {
-            // For now we only need Path just to handle cases where Constant are being passed without "" quotes
+            // For now we only need Path just to handle cases where CONSTANTS are being passed without "" quotes
             if let Some(path_ident) = path.get_ident() {
-                // println!("path ident: {:?}, span_current: {:?}, span_outer: {:?}", path_ident.to_string(), path_ident.span(), span);
                 return Ok(PropAttrsType::Lit(syn::Ident::new(
                     &path_ident.to_string(),
                     path_ident.span(),
@@ -129,14 +133,12 @@ pub fn get_expr_value<'a>(
                 format!("Attribute {attr_name} needs to be a valid Path: `{attr_name} = \"...\"`"),
             ))
         }
-        _ => {
-            dbg!(field);
-
-            Err(syn::Error::new(
-                span,
-                format!("Expected {attr_name} attribute to be a Lit/Path/Unary: `{attr_name} = \"...\"`"),
-            ))
-        }
+        _ => Err(syn::Error::new(
+            span,
+            format!(
+                "Expected {attr_name} attribute to be a Lit/Path/Unary: `{attr_name} = \"...\"`"
+            ),
+        )),
     }
 }
 
